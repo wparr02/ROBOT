@@ -1,11 +1,10 @@
 import time
 
-import serial
+from serial import *
 
 from guizero import App, Text, PushButton, Slider, TextBox
 
-
-connection = serial.Serial('COM4', 9600)  # open serial port
+connection = Serial('COM3', 9600)  # open serial port
 
 #Stop function to stop the robot from moving
 def stop():
