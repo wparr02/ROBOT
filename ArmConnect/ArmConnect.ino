@@ -1,14 +1,12 @@
 #include <Servo.h>
 
-// Default start values ie 'zero' - middle of stepper motors range of motion required
-// Limiting values, based off checking if arm has exceeded it's ROM - Checking number of steps remaining to complete ROM against the current position
-// Dual Z-axis
-// Parser to handle input string of format "0.00-0.00-0.00-0.00-0.00"
-// MORE MOTORS?
+// Class is complete, could be moved to a seperate .h file along with pin definitions; and included in the main sketch to tidy up the main codebase.
+// Taking commands of type "0.00/0.00/0.00/0.00/0.00" via serial currently function.
 
+// Further work required on the "END" command, which should take the current stored values of each motor's position (relative to position zero) and rotate in the opposite direct; towards origin.
+// Additionally, "RESET" command requires implementing - to provide means of reseting the bool variable endFlag to false; thus re-enableing the arm
+// 
 
-
-//
 #define LED_PIN            13
 
 #define X_STEP_PIN         54
@@ -37,7 +35,9 @@
 #define E1_DIR_PIN         34
 #define E1_ENABLE_PIN      30
 
+// How simultaneous the motors should actuate. Ie enables motors to appear to operate simulataneously.
 const int simultConst = 100;
+
 double xCurrent = 0;
 double yCurrent = 0;
 double zCurrent = 0;
@@ -46,11 +46,13 @@ double e1Current = 0;
 
 bool motorFlag[5] = {false};
 bool endFlag = false;
+
 Servo gripperServo;
 
+// Class to create different instances of each unique motor, enables functions to be compatible accross all pins
 class motor
 {
-    // Constructor to take input of "motor type" to class
+    // Constructor to take input of "motor type" to class. Case 0, 1, 2, 3, 4 correlating to the X, Y, Z, E0 and E1 drivers.
   public: motor(int motorType)
     {
       switch (motorType)
@@ -86,13 +88,16 @@ class motor
           break;
       }
     }
+    // Initalise some variables used in the constructor
   public:
     int mStep;
     int mDir;
     int mEn;
     int motorno;
 
-  public: void moveMotor(double noStep, double& mPosition, int isNegative = 1, int stepscaler = 100)
+    // Class method to actuate the motor, in both CW and CCW rotations. Moves a stepper a total of noStep * stepscaler number of steps. Ie as stepscaler defaults to 100
+    // noStep = 10, steps the motor a total of 1000 steps
+  public: void moveMotor(double noStep, double& mPosition, int isNegative = 1, int stepscaler = 100) // motor Position, passed as reference to enable tracking of delta from origin
     {
       // Determine No# of step regardless of direction
       int x = (noStep * stepscaler * isNegative);
@@ -115,34 +120,35 @@ class motor
       for (int i = 0; i < x; i++)
       {
         digitalWrite(mStep, HIGH);
+        // Is it possible to reduce this delay any further? 
         delay(1);
         digitalWrite(mStep, LOW);
       }
-      //Serial.println("!");
+
 
       // Cleanup: Disable output and reset flag.
-      //motorFlag[motorno] = false;
+      //motorFlag[motorno] = false; reset flag elsewhere. To enable pseudo-threading.
       digitalWrite(mEn, HIGH);
     }
 };
 
-motor A(0);
-motor B(1);
-motor C(2);
-motor D(3);
-motor E(4);
+motor A(0); // Motor X
+motor B(1); // Motor Y
+motor C(2); // Motor Z
+motor D(3); // Motor E0
+motor E(4); // Motor E1
 
 void setup() {
   Serial.begin(9600);
 
   //gripper servo
   pinMode(11, OUTPUT);
-  
   gripperServo.attach(11);
-  
+
   pinMode(LED_PIN, OUTPUT);
   Serial.println("HELLO");
-
+  
+  // RAMPS 1.4 GPIO Configuration
   pinMode(X_STEP_PIN, OUTPUT);
   pinMode(X_DIR_PIN, OUTPUT);
   pinMode(X_ENABLE_PIN, OUTPUT);
@@ -177,7 +183,6 @@ void setup() {
 
   digitalWrite(E1_ENABLE_PIN, LOW);
   digitalWrite(E1_DIR_PIN, HIGH);
-
 }
 
 void loop() {
@@ -187,9 +192,11 @@ void loop() {
   if (Serial.available() > 0)
   {
     int i = 0;
+    // Block reading of the buffer until the message has been recieved
     Serial.flush();
     String serial = Serial.readString();
-    //Serial.println(serial);
+
+    // Given case, serial == numberic values and end of routine flag not raised - parse the recieved string and store the contained data an array of doubles
     if (serial != "END" && endFlag == false)
     {
       char str[serial.length()];
@@ -209,6 +216,8 @@ void loop() {
       data[3] = atof(tokArray[3]);
       data[4] = atof(tokArray[4]);
     }
+    // If the command "END" has been recieved from the Python companion programme, reset each stepper motor to the initial starting position.
+    // Ie. move an equal and opposite number of steps as the current position, relative to the origin: 0.
     if (serial == "END" && endFlag != true)
     {
       serial = "";
@@ -222,6 +231,7 @@ void loop() {
       Serial.println(endFlag);
     }
 
+    // Hacky fix. To enable multimotor support. Currently polls each idex of the data array to check for non zero values, to trigger the actuation of the motor.
     if (data[0] != 0)
     {
       motorFlag[0] = !motorFlag[0];
@@ -229,13 +239,14 @@ void loop() {
       {
         isneg[0] = -1;
       }
+      // Hacky fix. To enable simultaneous rotation, divide the total number of steps accross a pool of "threads".
+      // Slower single motor speed, if all motors are running - however all appear to move simultaneous. Time to complete operation would be of a neglible delta 
+      // compared against individual motor total time of operation
       data[0] = data[0] / simultConst;
-      Serial.println(data[0]);
     }
     if (data[1] != 0)
     {
       motorFlag[1] = !motorFlag[1];
-      //Serial.println(data[1]);
       if (data[1] < 0)
       {
         isneg[1] = -1;
@@ -274,9 +285,13 @@ void loop() {
       data[4] = data[4] / simultConst;
     }
   }
-  gripperServo.write(0);
+  // Servo commands
+  //gripperServo.write(0);
+  //gripperServo.write(180);
+  
   for (int i = 0; i < simultConst; i++)
   {
+    // Hacky fix. Implemented to check each index of the motor flag array, to determine which motors to acuate.
     if (motorFlag[0] == true)
       A.moveMotor(data[0], xCurrent, isneg[0]);
     if (motorFlag[1] == true)
@@ -288,9 +303,8 @@ void loop() {
     if (motorFlag[4] == true)
       E.moveMotor(data[4], e1Current, isneg[4]);
   }
-  gripperServo.write(180);
- 
-  //Serial.println(xCurrent);
+  // Attempted hacky fix. Bug with the "END" command causing the programme to load data array. Perform a loop back to origin, and then continuing to loop until arduino is reset. Infinite loop has been achieved.
+  // ¯\_(ツ)_/¯
   motorFlag[0] = false;
   motorFlag[1] = false;
   motorFlag[2] = false;
