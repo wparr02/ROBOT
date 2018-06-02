@@ -218,15 +218,16 @@ void loop() {
     }
     // If the command "END" has been recieved from the Python companion programme, reset each stepper motor to the initial starting position.
     // Ie. move an equal and opposite number of steps as the current position, relative to the origin: 0.
+    // Currently assigns var data in range 1000, 2000 etc... Should take 10, 20, etc. So... Divide by 100 == fixed? ¯\_(ツ)_/¯
     if (serial == "END" && endFlag != true)
     {
       serial = "";
       Serial.println("END");
-      data[0] = -1 * xCurrent;
-      data[1] = -1 * yCurrent;
-      data[2] = -1 * zCurrent;
-      data[3] = -1 * e0Current;
-      data[4] = -1 * e1Current;
+      data[0] = -1 * xCurrent / 100;
+      data[1] = -1 * yCurrent / 100;
+      data[2] = -1 * zCurrent / 100;
+      data[3] = -1 * e0Current / 100;
+      data[4] = -1 * e1Current / 100;
       endFlag = true;
       Serial.println(endFlag);
     }
